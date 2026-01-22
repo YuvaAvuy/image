@@ -10,7 +10,7 @@ from PIL import Image
 import pytesseract
 
 # ---------- CONFIG ----------
-API_KEY = "AIzaSyA0NTeHJveTXalBlqJ1AWx8OIn7AIgiJJA"
+API_KEY = "AIzaSyDlTlRiTmQgLn1l_kGJfSGg-PtfjJQiXSc"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
 
 # ---------- GEMINI HELPERS ----------
