@@ -1,11 +1,5 @@
 streamlit
-requests
-beautifulsoup4
-lxml
-transformers
-torch
-pandas
-numpy
+google-generativeai
 langdetect
-pytesseract
 pillow
+pytesseract
