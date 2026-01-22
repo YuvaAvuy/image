@@ -4,17 +4,14 @@ import re
 from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
-# ===== NEW IMPORTS FOR MULTILINGUAL + IMAGE =====
+# ===== MULTILINGUAL + IMAGE =====
 from langdetect import detect
-from googletrans import Translator
 from PIL import Image
 import pytesseract
 
 # ---------- CONFIG ----------
 API_KEY = "AIzaSyA0NTeHJveTXalBlqJ1AWx8OIn7AIgiJJA"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-
-translator = Translator()
 
 # ---------- GEMINI HELPERS ----------
 def safe_extract_text(result):
@@ -39,16 +36,23 @@ def call_gemini(prompt, timeout=30):
     except Exception as e:
         return f"ERROR_CALLING_GEMINI: {e}"
 
-# ---------- MULTILINGUAL HELPERS ----------
-def translate_to_english(text):
+# ---------- MULTILINGUAL (NO googletrans) ----------
+def detect_and_translate(text):
     try:
         lang = detect(text)
-        if lang != "en":
-            translated = translator.translate(text, src=lang, dest="en")
-            return translated.text, lang
-        return text, "en"
     except:
-        return text, "unknown"
+        lang = "unknown"
+
+    if lang != "en" and lang != "unknown":
+        prompt = f"""Translate the following text to English.
+Do not explain. Do not summarize. Preserve meaning.
+
+Text:
+{text}"""
+        translated = call_gemini(prompt)
+        return translated if translated else text, lang
+
+    return text, lang
 
 # ---------- IMAGE OCR ----------
 def extract_text_from_image(image):
@@ -58,7 +62,7 @@ def extract_text_from_image(image):
     except:
         return None
 
-# ---------- CORE GEMINI QUERIES ----------
+# ---------- GEMINI CLASSIFICATION ----------
 def query_api_classify(text):
     prompt = f"""Classify the following news as REAL or FAKE.
 Answer format:
@@ -69,29 +73,30 @@ Text:
 {text}"""
     raw = call_gemini(prompt)
     lines = raw.split("\n", 1)
-    classification = lines[0].strip().upper() if lines else "UNSURE"
-    explanation = lines[1].strip() if len(lines) > 1 else raw
-    if "REAL" in classification:
-        return "REAL", explanation
-    elif "FAKE" in classification:
-        return "FAKE", explanation
+    cls = lines[0].strip().upper() if lines else "UNSURE"
+    expl = lines[1].strip() if len(lines) > 1 else raw
+
+    if "REAL" in cls:
+        return "REAL", expl
+    elif "FAKE" in cls:
+        return "FAKE", expl
     else:
-        return "UNSURE", explanation
+        return "UNSURE", expl
 
 
-def query_api_simple_explain(text, classification):
-    prompt = f"""Explain why the news is {classification} in simple words.
+def query_api_simple_explain(text, cls):
+    prompt = f"""Explain why the news is {cls}.
 - One sentence summary
-- Exactly 3 bullet points (short phrases)
+- Exactly 3 short bullet points
 
 Text:
 {text}"""
     return call_gemini(prompt)
 
 
-def query_api_detailed_explain(text, classification):
-    prompt = f"""Give a detailed explanation why the news is {classification}.
-Mention sources, claims, and 3 verification steps.
+def query_api_detailed_explain(text, cls):
+    prompt = f"""Explain in detail why the news is {cls}.
+Mention evidence, sources, and 3 verification steps.
 
 Text:
 {text}"""
@@ -109,19 +114,27 @@ Fake claim:
 # ---------- LOCAL MODELS ----------
 @st.cache_resource
 def load_bert_model():
-    model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
-    tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
+    model = AutoModelForSequenceClassification.from_pretrained(
+        "omykhailiv/bert-fake-news-recognition"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        "omykhailiv/bert-fake-news-recognition"
+    )
     return pipeline("text-classification", model=model, tokenizer=tokenizer)
+
 
 @st.cache_resource
 def load_roberta_model():
     return pipeline("zero-shot-classification", model="roberta-large-mnli")
 
+
 bert_pipeline = load_bert_model()
 roberta_pipeline = load_roberta_model()
 
+
 def local_model_signals(text):
     short_text = text[:512]
+
     try:
         bert_res = bert_pipeline(short_text)[0]
         bert_label = "REAL" if "REAL" in bert_res["label"].upper() else "FAKE"
@@ -140,7 +153,7 @@ def local_model_signals(text):
         "bert_label": bert_label,
         "bert_score": bert_score,
         "roberta_label": rob_label,
-        "roberta_score": rob_score
+        "roberta_score": rob_score,
     }
 
 # ---------- UTILITIES ----------
@@ -149,16 +162,20 @@ def clean_text(text):
     text = re.sub(r"(share|save|click here|read more)", "", text, flags=re.I)
     return re.sub(r"\s+", " ", text).strip()
 
+
 def scrape_url(url):
     try:
         res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.text, "html.parser")
         title = soup.title.string if soup.title else ""
-        paragraphs = [p.get_text() for p in soup.find_all("p") if len(p.get_text().split()) > 5]
+        paragraphs = [
+            p.get_text() for p in soup.find_all("p") if len(p.get_text().split()) > 5
+        ]
         text = " ".join(paragraphs)
         return clean_text((title + "\n" + text)[:4000])
     except:
         return None
+
 
 trusted_sources = {
     "bbc.com": "BBC",
@@ -167,21 +184,23 @@ trusted_sources = {
     "ndtv.com": "NDTV",
 }
 
+
 def get_source_name(url):
     for d, n in trusted_sources.items():
         if d in url.lower():
             return n
     return None
 
+# ---------- FINAL DECISION ----------
 def final_decision(text, url=""):
     text = clean_text(text)
-    translated_text, lang = translate_to_english(text)
+    translated_text, lang = detect_and_translate(text)
 
     if url:
         src = get_source_name(url)
         if src:
-            simple = f"Trusted source detected: {src}"
-            return "REAL", simple, simple, simple
+            msg = f"Article from trusted source: {src}"
+            return "REAL", msg, msg, msg, lang
 
     cls, expl = query_api_classify(translated_text)
     simple = query_api_simple_explain(translated_text, cls)
@@ -220,7 +239,7 @@ elif input_type == "Image":
 
 if st.button("Analyze"):
     if not user_input:
-        st.warning("Please provide input")
+        st.warning("Please provide input.")
     else:
         signals = local_model_signals(user_input)
         result, explanation, simple, detailed, lang = final_decision(user_input, page_url)
