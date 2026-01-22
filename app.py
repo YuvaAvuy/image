@@ -21,26 +21,27 @@ st.title("📰 Multilingual Fake News Detection")
 
 def call_groq(news_text):
     prompt = f"""
-You are an expert fact-checking AI.
+You are an expert fake news detection system.
 
-Analyze the following news and give:
-1. Detected Language
-2. FINAL VERDICT (REAL / FAKE / UNSURE)
-3. Short explanation (2–3 lines)
-4. How a user can verify it themselves
+Analyze the following news and respond with:
+
+FINAL VERDICT: REAL / FAKE / UNSURE
+Explanation: short and simple (2–3 lines)
+Verification Tips: how users can verify it
 
 News:
 \"\"\"{news_text}\"\"\"
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama-3.1-8b-instant",
         messages=[
-            {"role": "system", "content": "You detect fake news."},
+            {"role": "system", "content": "You are a professional fact-checker."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3
+        temperature=0.2
     )
+
     return response.choices[0].message.content
 
 
@@ -50,8 +51,8 @@ def extract_text_from_image(image):
 
 def extract_text_from_url(url):
     try:
-        response = requests.get(url, timeout=5)
-        return response.text[:4000]
+        r = requests.get(url, timeout=5)
+        return r.text[:4000]
     except:
         return ""
 
@@ -96,21 +97,22 @@ if st.button("🔍 Detect Fake News"):
     else:
         with st.spinner("Analyzing using AI..."):
             try:
-                language = detect(news_text)
-                result = call_groq(news_text)
+                lang = detect(news_text)
 
                 st.subheader("📝 Detected Language")
-                st.write(language.upper())
+                st.write(lang.upper())
 
-                st.subheader("📊 AI Analysis Result")
+                result = call_groq(news_text)
+
+                st.subheader("⚠️ FINAL VERDICT")
                 st.success(result)
 
                 st.subheader("✅ How to verify yourself")
                 st.markdown("""
 - Check official government or reputed news websites  
-- Search the headline on Google News  
-- Avoid messages with urgent or sensational tone  
-- Verify date and source authenticity
+- Search the same headline on Google News  
+- Avoid urgent or sensational messages  
+- Verify the date and original source  
 """)
 
             except Exception as e:
