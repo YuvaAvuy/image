@@ -1,5 +1,9 @@
 streamlit
-google-generativeai
-langdetect
+requests
+beautifulsoup4
+lxml
+transformers
+torch
 pillow
 pytesseract
+google-generativeai
