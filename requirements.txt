@@ -1,7 +1,6 @@
 streamlit
+groq
+langdetect
 requests
-beautifulsoup4
-lxml
 pillow
 pytesseract
-google-generativeai
