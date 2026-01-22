@@ -1,112 +1,117 @@
 import streamlit as st
-import requests
-import re
-import time
-from bs4 import BeautifulSoup
+from groq import Groq
+from langdetect import detect
 from PIL import Image
 import pytesseract
-import google.generativeai as genai
+import requests
 
-# ================= CONFIG =================
-# API KEY (Hardcoded for demo/sample)
-GEMINI_API_KEY = "AIzaSyDTBMTkGcUp2KLPjRkti1IuGtKQ2vE9zF0"
+# ================== CONFIG ==================
+GROQ_API_KEY = "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"
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+client = Groq(api_key=GROQ_API_KEY)
 
-# ================= GEMINI CALL =================
-def call_gemini(prompt, retries=2):
-    for _ in range(retries):
-        try:
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            err = str(e)
-            time.sleep(2)
-    return f"ERROR: {err}"
+st.set_page_config(
+    page_title="Multilingual Fake News Detection",
+    layout="centered"
+)
 
-# ================= CORE AI LOGIC =================
-def multilingual_fake_news_check(text):
-    prompt = f"""
-You are a professional fact-checking AI.
-
-Steps you MUST follow internally:
-1. Detect the language.
-2. Translate to English if needed.
-3. Reason carefully.
-4. Decide clearly if the news is REAL or FAKE.
-
-Output format (STRICT):
-Language: <language name>
-Verdict: REAL or FAKE
-Explanation: 3–4 clear sentences explaining why.
-
-News:
-{text}
-"""
-    return call_gemini(prompt)
-
-# ================= UTILITIES =================
-def clean_text(text):
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-def scrape_url(url):
-    try:
-        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(res.text, "html.parser")
-        paragraphs = [p.get_text() for p in soup.find_all("p") if len(p.get_text()) > 30]
-        return clean_text(" ".join(paragraphs)[:4000])
-    except:
-        return ""
-
-def extract_text_from_image(image):
-    try:
-        return pytesseract.image_to_string(image)
-    except:
-        return ""
-
-# ================= STREAMLIT UI =================
-st.set_page_config(page_title="Multilingual Fake News Detection", layout="wide")
 st.title("📰 Multilingual Fake News Detection")
 
-input_type = st.radio("Choose input type", ["Text", "URL", "Image"])
+# ================== FUNCTIONS ==================
+
+def call_groq(news_text):
+    prompt = f"""
+You are an expert fact-checking AI.
+
+Analyze the following news and give:
+1. Detected Language
+2. FINAL VERDICT (REAL / FAKE / UNSURE)
+3. Short explanation (2–3 lines)
+4. How a user can verify it themselves
+
+News:
+\"\"\"{news_text}\"\"\"
+"""
+
+    response = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[
+            {"role": "system", "content": "You detect fake news."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message.content
+
+
+def extract_text_from_image(image):
+    return pytesseract.image_to_string(image)
+
+
+def extract_text_from_url(url):
+    try:
+        response = requests.get(url, timeout=5)
+        return response.text[:4000]
+    except:
+        return ""
+
+
+# ================== UI ==================
+
+input_type = st.radio(
+    "Choose input type",
+    ["Text", "URL", "Image"]
+)
 
 news_text = ""
 
 if input_type == "Text":
-    news_text = st.text_area("Enter news text", height=200)
+    news_text = st.text_area(
+        "Enter news text",
+        height=180,
+        placeholder="Enter news content here..."
+    )
 
 elif input_type == "URL":
     url = st.text_input("Enter news URL")
     if url:
-        news_text = scrape_url(url)
-        st.text_area("Extracted Article", news_text, height=250)
+        news_text = extract_text_from_url(url)
 
 elif input_type == "Image":
-    img_file = st.file_uploader("Upload image containing news text", type=["png", "jpg", "jpeg"])
-    if img_file:
-        image = Image.open(img_file)
+    uploaded_image = st.file_uploader(
+        "Upload news image",
+        type=["png", "jpg", "jpeg"]
+    )
+    if uploaded_image:
+        image = Image.open(uploaded_image)
         st.image(image, caption="Uploaded Image", use_column_width=True)
         news_text = extract_text_from_image(image)
-        st.text_area("Extracted Text (OCR)", news_text, height=250)
 
-# ================= ANALYZE =================
-if st.button("Analyze"):
+# ================== PROCESS ==================
+
+if st.button("🔍 Detect Fake News"):
+
     if not news_text.strip():
         st.warning("Please provide valid input")
     else:
-        with st.spinner("Analyzing using AI reasoning..."):
-            result = multilingual_fake_news_check(news_text)
+        with st.spinner("Analyzing using AI..."):
+            try:
+                language = detect(news_text)
+                result = call_groq(news_text)
 
-        if result.startswith("ERROR"):
-            st.error("⚠️ Gemini API Error or Rate Limit")
-            st.error(result)
-        else:
-            st.markdown("## 🔍 Analysis Result")
-            st.write(result)
+                st.subheader("📝 Detected Language")
+                st.write(language.upper())
 
-            st.markdown("## ✅ How to verify yourself")
-            st.markdown("1. Check official government or reputed news websites")
-            st.markdown("2. Search the same headline on Google News")
-            st.markdown("3. Be cautious of urgent or sensational language")
+                st.subheader("📊 AI Analysis Result")
+                st.success(result)
+
+                st.subheader("✅ How to verify yourself")
+                st.markdown("""
+- Check official government or reputed news websites  
+- Search the headline on Google News  
+- Avoid messages with urgent or sensational tone  
+- Verify date and source authenticity
+""")
+
+            except Exception as e:
+                st.error(f"API Error: {e}")
