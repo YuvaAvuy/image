@@ -1,0 +1,12 @@
+streamlit
+requests
+beautifulsoup4
+lxml
+transformers
+torch
+pandas
+numpy
+langdetect
+googletrans==4.0.0-rc1
+pytesseract
+pillow
